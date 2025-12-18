@@ -71,7 +71,7 @@ def multi_label_auc(labels, scores, n_classes):
 # -------------------------
 # Train / Eval loops
 # -------------------------
-def train_one_epoch(model, loader, optimizer, bag_weight):
+def train_one_epoch(model, loader, optimizer,bag_loss_fn):
     model.train()
     total_loss, correct, total = 0.0, 0, 0
 
@@ -84,7 +84,6 @@ def train_one_epoch(model, loader, optimizer, bag_weight):
         logits, inst_loss = model(x5, x10, x20, label)
 
         bag_loss = bag_loss_fn(logits, label)
-        loss = bag_weight * bag_loss + (1 - bag_weight) * inst_loss
 
         loss.backward()
         optimizer.step()
@@ -175,4 +174,4 @@ def train_fold(model, train_loader, val_loader, test_loader, args, fold):
             torch.save(model.state_dict(), ckpt)
 
     model.load_state_dict(torch.load(ckpt, map_location=device))
-    return evaluate(model, test_loader, bag_loss_fn, args.n_classes, args.bag_weight)
+    return evaluate(model, test_loader, bag_loss_fn, args.n_classes)
