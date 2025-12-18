@@ -13,9 +13,9 @@ args = Namespace(
     results_dir="results",
     n_classes=3,
 
-    epochs=20,
-    lr=1e-4,
-    weight_decay=5e-5,
+    epochs=50,
+    lr=2e-4,
+    weight_decay=1e-5,
     bag_weight=0.7,
 
     bag_loss="svm",     # "svm" or "ce"
