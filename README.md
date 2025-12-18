@@ -1,4 +1,81 @@
-This repository contains the official PyTorch implementation of CMA-MIL, a multi-scale multiple instance learning (MIL) framework designed for whole-slide image (WSI) classification. CMA-MIL integrates cross-magnification attention to effectively model multi-resolution histopathology features.
+This repository contains the official PyTorch implementation of **CMA-MIL**, a multi-scale multiple instance learning (MIL) framework designed for **whole-slide image (WSI) classification**. CMA-MIL integrates **cross-magnification attention** to effectively model **multi-resolution histopathology features**.
+
+---
+
+## Processing Raw WSI Data
+
+This repository includes a **DeepZoom-based WSI patch extraction pipeline** designed for **CMA-MIL training**. The pipeline efficiently extracts informative tissue patches from high-resolution WSIs while filtering out background regions.
+
+Key characteristics of the patch extraction pipeline include:
+
+1. **DeepZoom pyramidal tiling** for efficient large-WSI processing  
+2. **Multi-processing** for scalable and fast patch extraction  
+3. **Edge-density–based tissue filtering** to remove background patches  
+4. **Multi-magnification extraction** (e.g., 5×, 10×, and 20×)  
+5. **CMA-MIL–ready bag organization** (class / slide / patches)  
+
+---
+
+## 📂 Expected WSI Directory Structure
+
+Raw WSIs should be organized as follows:
+
+```text
+WSI_root/
+├── class_1/
+│   ├── slide_001.svs
+│   ├── slide_002.svs
+├── class_2/
+│   ├── slide_101.svs
+│   ├── slide_102.svs
+
+🗂 Extracted Patch Organization
+
+Extracted patches are automatically organized by magnification, class, and slide, forming CMA-MIL–compatible bags.
+
+5× Magnification
+patches_5x/
+├── class_1/
+│   ├── slide_001/
+│   │   ├── 0_0.jpeg
+│   │   ├── 0_1.jpeg
+│   │   └── ...
+│   └── slide_002/
+├── class_2/
+│   └── slide_101/
+
+10× Magnification
+patches_10x/
+├── class_1/
+│   ├── slide_001/
+│   │   ├── 0_0.jpeg
+│   │   ├── 0_1.jpeg
+│   │   └── ...
+│   └── slide_002/
+├── class_2/
+│   └── slide_101/
+
+20× Magnification
+patches_20x/
+├── class_1/
+│   ├── slide_001/
+│   │   ├── 0_0.jpeg
+│   │   ├── 0_1.jpeg
+│   │   └── ...
+│   └── slide_002/
+├── class_2/
+│   └── slide_101/
+
+### Running Patch Extraction
+
+python patch_tiling.py \
+  --data_root data/raw_wsi \
+  --out_dir patches \
+  --tile_size 224 \
+  --base_mag 20 \
+  --magnifications 0 \
+  --workers 4 \
+  --threshold 15
 
 Overview
 CMA-MIL operates on multi-magnification patch graphs (e.g., 5×, 10×, 20×) and jointly learns:
