@@ -10,9 +10,9 @@ patching:
   mean_thresh: 200
 
 model:
-  num_classes: 3
+  num_classes: 2
   embed_dim: 512
-  k_sample: 32
+  k_sample: 8
 
 training:
   epochs: 20
