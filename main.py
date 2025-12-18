@@ -4,9 +4,9 @@ import random
 import numpy as np
 import torch
 
-from models.cma_mil import new
-from data.data_utils import data_generator
-from utils.train_eval import train_fold
+from Model.cma-mil import new
+from Utils.data_utils import data_generator
+from Utils.train_eval import train_fold
 
 
 # --------------------------------------------------
@@ -34,8 +34,8 @@ def get_args():
 
     # Training
     parser.add_argument("--epochs", type=int, default=20)
-    parser.add_argument("--lr", type=float, default=2e-4)
-    parser.add_argument("--weight_decay", type=float, default=1e-5)
+    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--weight_decay", type=float, default=5e-5)
     parser.add_argument("--bag_weight", type=float, default=0.7)
     parser.add_argument("--n_classes", type=int, default=2)
 
@@ -51,10 +51,6 @@ def get_args():
 
     return parser.parse_args()
 
-
-# --------------------------------------------------
-# Main
-# --------------------------------------------------
 def main():
     args = get_args()
     set_seed(args.seed)
@@ -96,7 +92,15 @@ def main():
             )
         )
 
-        model = new()
+        if args.inst_loss == 'svm':
+            from topk.svm import SmoothTop1SVM
+            instance_loss_fn = SmoothTop1SVM(n_classes = 2)
+            if device.type == 'cuda':
+                instance_loss_fn = instance_loss_fn.cuda()
+        else:
+            instance_loss_fn = nn.CrossEntropyLoss()
+
+        model = CMA_MIL(n_classes=args.num_classes, instance_loss_fn=instance_loss_fn)
         stats = train_fold(model, train_loader, val_loader, test_loader, args, fold)
 
         print(
