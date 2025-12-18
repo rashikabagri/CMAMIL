@@ -1,1 +1,23 @@
+data:
+  wsi_dir: data/raw_wsi
+  patch_dir: data/patches
+  feature_dir: data/features
 
+patching:
+  tile_size: 512
+  resize: 256
+  min_std: 10
+  mean_thresh: 200
+
+model:
+  num_classes: 3
+  embed_dim: 512
+  k_sample: 32
+
+training:
+  epochs: 20
+  lr: 0.0002
+  weight_decay: 0.00005
+  batch_size: 1
+  folds: 5
+  seed: 0
