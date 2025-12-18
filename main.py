@@ -1,1 +1,121 @@
+import os
+import argparse
+import random
+import numpy as np
+import torch
+
+from models.cma_mil import new
+from data.data_utils import data_generator
+from utils.train_eval import train_fold
+
+
+# --------------------------------------------------
+# Reproducibility
+# --------------------------------------------------
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+
+# --------------------------------------------------
+# Argument Parser
+# --------------------------------------------------
+def get_args():
+    parser = argparse.ArgumentParser("CMA-MIL Training")
+
+    # Data
+    parser.add_argument("--data_root_5x", type=str, required=True)
+    parser.add_argument("--data_root_10x", type=str, required=True)
+    parser.add_argument("--data_root_20x", type=str, required=True)
+
+    # Training
+    parser.add_argument("--epochs", type=int, default=20)
+    parser.add_argument("--lr", type=float, default=2e-4)
+    parser.add_argument("--weight_decay", type=float, default=1e-5)
+    parser.add_argument("--bag_weight", type=float, default=0.7)
+    parser.add_argument("--n_classes", type=int, default=2)
+
+    # Loss
+    parser.add_argument("--bag_loss", type=str, default="svm", choices=["svm", "ce"])
+    parser.add_argument("--inst_loss", type=str, default="svm", choices=["svm", "ce"])
+
+    # CV / misc
+    parser.add_argument("--folds", type=int, default=5)
+    parser.add_argument("--results_dir", type=str, default="results")
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--early_stopping", action="store_true")
+
+    return parser.parse_args()
+
+
+# --------------------------------------------------
+# Main
+# --------------------------------------------------
+def main():
+    args = get_args()
+    set_seed(args.seed)
+
+    os.makedirs(args.results_dir, exist_ok=True)
+
+    print("====================================")
+    print(" CMA-MIL Training")
+    print("====================================")
+    print(vars(args))
+    print("====================================")
+
+    all_fold_auc = []
+
+    for fold in range(1, args.folds + 1):
+        print(f"\n========== Fold {fold}/{args.folds} ==========\n")
+
+        train_loader = list(
+            data_generator(
+                os.path.join(args.data_root_5x, str(fold), "train"),
+                os.path.join(args.data_root_10x, str(fold), "train"),
+                os.path.join(args.data_root_20x, str(fold), "train"),
+            )
+        )
+
+        val_loader = list(
+            data_generator(
+                os.path.join(args.data_root_5x, str(fold), "val"),
+                os.path.join(args.data_root_10x, str(fold), "val"),
+                os.path.join(args.data_root_20x, str(fold), "val"),
+            )
+        )
+
+        test_loader = list(
+            data_generator(
+                os.path.join(args.data_root_5x, str(fold), "test"),
+                os.path.join(args.data_root_10x, str(fold), "test"),
+                os.path.join(args.data_root_20x, str(fold), "test"),
+            )
+        )
+
+        model = new()
+        stats = train_fold(model, train_loader, val_loader, test_loader, args, fold)
+
+        print(
+            f"[Fold {fold}] "
+            f"Test AUC: {stats['auc']:.4f} | "
+            f"Acc: {stats['acc']:.4f} | "
+            f"F1: {stats['f1']:.4f}"
+        )
+
+        all_fold_auc.append(stats["auc"])
+
+    print("\n====================================")
+    print(" Cross-validation Summary")
+    print("====================================")
+    print(f"Mean AUC : {np.mean(all_fold_auc):.4f}")
+    print(f"Std  AUC : {np.std(all_fold_auc):.4f}")
+    print("====================================")
+
+
+if __name__ == "__main__":
+    main()
 
