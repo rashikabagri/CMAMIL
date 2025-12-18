@@ -5,22 +5,32 @@ from models.cma_mil import new
 from data.data_utils import data_generator
 from utils.train_eval import train_fold
 
-
 args = Namespace(
     data_root_5x="path_to_5x",
     data_root_10x="path_to_10x",
     data_root_20x="path_to_20x",
+
     results_dir="results",
     n_classes=3,
+
     epochs=20,
     lr=1e-4,
+    weight_decay=5e-5,
     bag_weight=0.7,
+
+    bag_loss="svm",     # "svm" or "ce"
+    inst_loss="svm",    # "svm" or "ce"
+
+    early_stopping=True,
+    seed=0,
 )
 
 num_folds = 5
+os.makedirs(args.results_dir, exist_ok=True)
+
 
 for fold in range(1, num_folds + 1):
-    print(f"\nStarting Fold {fold}\n")
+    print(f"\n========== Fold {fold} ==========\n")
 
     train_loader = list(
         data_generator(
