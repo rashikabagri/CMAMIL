@@ -10,6 +10,7 @@ from sklearn.metrics import (
     f1_score,
     roc_auc_score
 )
+from topk.svm import SmoothTop1SVM
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
