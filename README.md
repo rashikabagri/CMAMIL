@@ -143,81 +143,137 @@ Shape: (number_of_patches, 512)
 
 Patch-level features were extracted using a pretrained ShuffleNet-V2 backbone. The classification layer was removed, and a lightweight projection head was used to obtain 512-dimensional embeddings. For each whole-slide image, patch features were aggregated and stored as NumPy arrays to support efficient multi-scale multiple instance learning.
 
-Overview
-CMA-MIL operates on multi-magnification patch graphs (e.g., 5×, 10×, 20×) and jointly learns:
-Cross-magnification interactions between patches at different scales
-Gated attention pooling within each magnification
-Bag-level slide classification
-Instance-level supervision using top-k positive and negative patches
 
-CMA_MIL(
-  ├─ Cross-Magnification Attention
-  ├─ Gated Attention Pooling (per scale)
-  ├─ Feature Fusion )
+## Training Pipeline
 
-Repository Structure
-├── main.py                     
-├── models/
-│   └── cma_mil.py               # CMA-MIL model definition
-├── utils/
-    └── data_utils.py    
-│   └── train_eval.py            # Training, evaluation, early stopping
-│   └── data_utils.py            # Multi-scale data loader
-├── README.md
+This repository supports **feature-based representations of whole-slide images (WSIs)** for training the **CMA-MIL** model. Each slide is represented as a **set of patch-level feature vectors**, stored as NumPy (`.npy`) files. These features are loaded directly during training without constructing any graph structures.
 
-CMA-MIL expects pre-extracted patch-level features at each magnification.
+---
 
-data_root_5x/
-  └── fold_id/
-      ├── train/
-      │   └── class_name/*.npy
-      ├── val/
-      └── test/
+## Feature Representation
 
-data_root_10x/
-data_root_20x/
+- Each WSI is represented as a **NumPy array (`.npy`)**
+- Shape of each file:
+(number_of_patches, feature_dimension)
 
+yaml
+Copy code
+- Feature dimension is typically **512**
+- Each row corresponds to **one patch-level feature embedding**
+
+---
+
+## 📂 Feature Directory Structure
+
+Features must be organized by **class label** and **magnification**:
+
+```text
+features_5x/
+├── class_0/
+│   ├── slide_001.npy
+│   ├── slide_002.npy
+├── class_1/
+│   ├── slide_101.npy
+
+features_10x/
+├── class_0/
+│   ├── slide_001.npy
+│   ├── slide_002.npy
+├── class_1/
+│   ├── slide_101.npy
+
+features_20x/
+├── class_0/
+│   ├── slide_001.npy
+│   ├── slide_002.npy
+├── class_1/
+│   ├── slide_101.npy
+Each .npy file corresponds to one slide (one MIL bag).
+```
+
+Multi-Magnification Feature Loading
+The training pipeline synchronously loads features from 5×, 10×, and 20× magnifications:
+
+python
+Copy code
+yield features_5x, features_10x, features_20x, label
+This design:
+
+Ensures label consistency across magnifications
+
+Enables cross-magnification attention in CMA-MIL
+
+Uses three feature tensors and one slide-level label per sample
+
+Loss Functions
+The pipeline supports flexible loss configurations at both levels.
+
+Bag-Level Loss
+Cross-Entropy Loss
+Smooth Top-1 SVM (optional)
+
+Instance-Level Loss
+Cross-Entropy Loss
+Smooth Top-1 SVM (optional)
+
+This enables effective supervision at both bag and instance levels.
+
+Early Stopping
+An early stopping strategy is applied during training:
+Monitors validation AUC
+Saves the best-performing model checkpoint
+Stops training when performance does not improve beyond a patience threshold
+
+Training and Evaluation
 Training
-python main.py \
-  --data_root_5x data/5x \
-  --data_root_10x data/10x \
-  --data_root_20x data/20x \
-  --folds 5 \
-  --epochs 20 \
-  --bag_loss ce \
-  --inst_loss svm \
-  --early_stopping \
+Optimizer: Adam
+Supports weight decay regularization
+Combines bag-level and instance-level losses
+Trains using fold-wise evaluation
 
-| Argument           | Description                         | Default |
-| ------------------ | ----------------------------------- | ------- |
-| `--bag_loss`       | Bag-level loss (`ce` or `svm`)      | `ce`   |
-| `--inst_loss`      | Instance-level loss (`ce` or `svm`) | `svm`   |
-| `--bag_weight`     | Weight for bag-level loss           | `0.7`   |
-| `--k_sample`       | Top-k instances for supervision     | `8`     |
-| `--drop_out`       | Dropout rate                        | `0.2`   |
-| `--embed_dim`      | Feature embedding dimension         | `512`   |
-| `--dim`            | Attention hidden dimension          | `128`   |
-| `--weight_decay`   | L2 regularization                   | `1e-5`  |
-| `--early_stopping` | Enable early stopping               | `False` |
-| `--log_data`       | Enable TensorBoard logging          | `False` |
+Evaluation Metrics
+The following metrics are reported:
+Accuracy
+Precision
+Recall
+F1-score
 
+Mean multi-class ROC-AUC (one-vs-rest)
 
+Fold-Wise Training
+The train_fold routine:
+Trains CMA-MIL on a training split
+Validates after each epoch
+Applies early stopping
+Evaluates final performance on a held-out test split
+This setup supports cross-validation experiments.
+
+Key Training Arguments
+Argument	Description	Default
+--bag_loss	Bag-level loss (ce or svm)	ce
+--inst_loss	Instance-level loss (ce or svm)	svm
+--bag_weight	Weight for bag-level loss	0.7
+--k_sample	Top-k instances for supervision	8
+--drop_out	Dropout rate	0.2
+--embed_dim	Feature embedding dimension	512
+--dim	Attention hidden dimension	128
+--weight_decay	L2 regularization	1e-5
+--early_stopping	Enable early stopping	False
+--log_data	Enable TensorBoard logging	False
+
+📈 Reported Results
 During training and testing, we report:
 
 Accuracy
+
 Precision / Recall / F1-score
-Mean multi-class AUC (one-vs-rest)
+
+Mean multi-class ROC-AUC (one-vs-rest)
+
 Cross-validation results are averaged across folds.
 
 Reproducibility
 Fixed random seeds
-Cross-validation splits saved as CSV (dataset_folds)
-All hyperparameters configurable via CLI
+Fold-wise cross-validation splits saved as CSV files
 
-If you use this code in your research, please cite:
-@article{CMA-MIL,
-  title={Cross-Magnification Attention for Multi-Scale Multiple Instance Learning},
-  author={...},
-  journal={...},
-  year={2025}
-}
+
