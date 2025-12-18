@@ -65,6 +65,7 @@ patches_20x/
 │   └── slide_002/
 ├── class_2/
 │   └── slide_101/
+```
 
 ### Running Patch Extraction
 
@@ -76,6 +77,71 @@ python patch_tiling.py \
   --magnifications 0 \
   --workers 4 \
   --threshold 15
+
+## 🧠 Feature Computation (ShuffleNet → `.npy`)
+
+After patch extraction, we compute **patch-level feature embeddings** using a **pretrained ShuffleNet-V2 backbone**. These features are used as input to the CMA-MIL model.
+
+The feature computation step:
+- Does **not** use any MIL model
+- Operates **independently on each patch**
+- Produces **512-dimensional embeddings**
+- Saves features in **NumPy (`.npy`) format** for efficient loading
+
+---
+
+### 🔍 Feature Extractor
+
+- Backbone: **ShuffleNet-V2 (x1.0)**
+- Pretrained on: **ImageNet**
+- Classification head removed
+- Projection head: `1024 → 512`
+- Output per patch: **512-D feature vector**
+
+---
+
+### 📂 Input (Patch Directory)
+
+The script expects patches organized as:
+
+```text
+patches_5x/
+├── class_1/
+│   ├── slide_001/
+│   │   ├── 0_0.jpeg
+│   │   ├── 0_1.jpeg
+│   │   └── ...
+│   └── slide_002/
+├── class_2/
+│   └── slide_101/
+
+The same structure applies to patches_10x/ and patches_20x/.
+
+Running Feature Extraction
+python compute_features.py \
+  --patch_root patches_5x \
+  --out_dir features \
+  --batch_size 128 \
+  --num_workers 4
+
+Also run separately for each magnification (5×, 10×, 20×).
+
+Extracted features are saved as one .npy file per slide (bag):
+
+features/
+└── patches_5x/
+    ├── class_1/
+    │   ├── slide_001.npy   # (N_patches × 512)
+    │   └── slide_002.npy
+    ├── class_2/
+    │   └── slide_101.npy
+    └── dataset_index.npy
+
+Each .npy file contains all patch features for a single WSI
+Shape: (number_of_patches, 512)
+```
+
+Patch-level features were extracted using a pretrained ShuffleNet-V2 backbone. The classification layer was removed, and a lightweight projection head was used to obtain 512-dimensional embeddings. For each whole-slide image, patch features were aggregated and stored as NumPy arrays to support efficient multi-scale multiple instance learning.
 
 Overview
 CMA-MIL operates on multi-magnification patch graphs (e.g., 5×, 10×, 20×) and jointly learns:
