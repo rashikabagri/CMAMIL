@@ -5,55 +5,227 @@ from torch import nn
 import torch.nn.functional as F
 
 
-class DAttention(nn.Module):
-    def __init__(self, n_classes, dropout, act):
-        super(DAttention, self).__init__()
-        self.L = 512  # 512
-        self.D = 128  # 128
-        self.K = 1
-        self.feature = [nn.Linear(1024, 512)]
+cclass SAttention(nn.Module):
 
-        if act.lower() == 'gelu':
-            self.feature += [nn.GELU()]
+    def __init__(self,mlp_dim=512,pos_pos=0,pos='ppeg',peg_k=7,head=8):
+        super(SAttention, self).__init__()
+        self.norm = nn.LayerNorm(mlp_dim)
+
+        self.cls_token = nn.Parameter(torch.randn(1, 1, mlp_dim))
+
+        self.layer1 = TransLayer(dim=mlp_dim,head=head)
+        self.layer2 = TransLayer(dim=mlp_dim,head=head)
+
+        if pos == 'ppeg':
+            self.pos_embedding = PPEG(dim=mlp_dim,k=peg_k)
+        elif pos == 'sincos':
+            self.pos_embedding = SINCOS(embed_dim=mlp_dim)
+        elif pos == 'peg':
+            self.pos_embedding = PEG(512,k=peg_k)
         else:
-            self.feature += [nn.ReLU()]
+            self.pos_embedding = nn.Identity()
+
+        self.pos_pos = pos_pos
+
+    # Modified by MAE@Meta
+    def masking(self, x, ids_shuffle=None,len_keep=None):
+        """
+        Perform per-sample random masking by per-sample shuffling.
+        Per-sample shuffling is done by argsort random noise.
+        x: [N, L, D], sequence
+        """
+        N, L, D = x.shape  # batch, length, dim
+        assert ids_shuffle is not None
+
+        _,ids_restore = ids_shuffle.sort()
+
+        # keep the first subset
+        ids_keep = ids_shuffle[:, :len_keep]
+        x_masked = torch.gather(x, dim=1, index=ids_keep.unsqueeze(-1).repeat(1, 1, D))
+
+        # generate the binary mask: 0 is keep, 1 is remove
+        mask = torch.ones([N, L], device=x.device)
+        mask[:, :len_keep] = 0
+        # unshuffle to get the binary mask
+        mask = torch.gather(mask, dim=1, index=ids_restore)
+
+        return x_masked, mask, ids_restore
+
+    def forward(self, x, mask_ids=None, len_keep=None, return_attn=False,mask_enable=False):
+        batch, num_patches, C = x.shape 
+        
+        attn = []
+
+        if self.pos_pos == -2:
+            x = self.pos_embedding(x)
+        
+        # masking
+        if mask_enable and mask_ids is not None:
+            x, _, _ = self.masking(x,mask_ids,len_keep)
+
+        # cls_token
+        cls_tokens = repeat(self.cls_token, '1 n d -> b n d', b = batch)
+        x = torch.cat((cls_tokens, x), dim=1)
+        
+        if self.pos_pos == -1:
+            x = self.pos_embedding(x)
+
+        # translayer1
+        if return_attn:
+            x,_attn = self.layer1(x,True)
+            attn.append(_attn.clone())
+        else:
+            x = self.layer1(x)
+
+        # add pos embedding
+        if self.pos_pos == 0:
+            x[:,1:,:] = self.pos_embedding(x[:,1:,:])
+        
+        # translayer2
+        if return_attn:
+            x,_attn = self.layer2(x,True)
+            attn.append(_attn.clone())
+        else:
+            x = self.layer2(x)
+
+        #---->cls_token
+        x = self.norm(x)
+
+        logits = x[:,0,:]
+ 
+        if return_attn:
+            _a = attn
+            return logits ,_a
+        else:
+            return logits
+
+class Attention(nn.Module):
+    def __init__(self,input_dim=512,act='relu',bias=False,dropout=False):
+        super(Attention, self).__init__()
+        self.L = input_dim
+        self.D = 128
+        self.K = 1
+
+        self.attention = [nn.Linear(self.L, self.D,bias=bias)]
+
+        if act == 'gelu': 
+            self.attention += [nn.GELU()]
+        elif act == 'relu':
+            self.attention += [nn.ReLU()]
+        elif act == 'tanh':
+            self.attention += [nn.Tanh()]
 
         if dropout:
-            self.feature += [nn.Dropout(0.25)]
+            self.attention += [nn.Dropout(0.25)]
 
-        self.feature = nn.Sequential(*self.feature)
+        self.attention += [nn.Linear(self.D, self.K,bias=bias)]
 
-        self.attention = nn.Sequential(
-            nn.Linear(self.L, self.D),
-            nn.Tanh(),
-            nn.Linear(self.D, self.K)
-        )
-        self.classifier = nn.Sequential(
-            nn.Linear(self.L * self.K, n_classes),
-        )
+        self.attention = nn.Sequential(*self.attention)
 
-        self.apply(initialize_weights)
-
-    def forward(self, x, return_attn=False, no_norm=False):
-        feature = self.feature(x)
-
-        # feature = group_shuffle(feature)
-        feature = feature.squeeze(0)
-        A = self.attention(feature)
-        A_ori = A.clone()
+    def forward(self,x,no_norm=False):
+        A = self.attention(x)
         A = torch.transpose(A, -1, -2)  # KxN
+        A_ori = A.clone()
         A = F.softmax(A, dim=-1)  # softmax over N
-        M = torch.mm(A, feature)  # KxL
-        Y_prob = self.classifier(M)
+        x = torch.matmul(A,x)
+        
+        if no_norm:
+            return x,A_ori
+        else:
+            return x,A
+
+class AttentionGated(nn.Module):
+    def __init__(self,input_dim=512,act='relu',bias=False,dropout=False):
+        super(AttentionGated, self).__init__()
+        self.L = input_dim
+        self.D = 128
+        self.K = 1
+
+        self.attention_a = [
+            nn.Linear(self.L, self.D,bias=bias),
+        ]
+        if act == 'gelu': 
+            self.attention_a += [nn.GELU()]
+        elif act == 'relu':
+            self.attention_a += [nn.ReLU()]
+        elif act == 'tanh':
+            self.attention_a += [nn.Tanh()]
+
+        self.attention_b = [nn.Linear(self.L, self.D,bias=bias),
+                            nn.Sigmoid()]
+
+        if dropout:
+            self.attention_a += [nn.Dropout(0.25)]
+            self.attention_b += [nn.Dropout(0.25)]
+
+        self.attention_a = nn.Sequential(*self.attention_a)
+        self.attention_b = nn.Sequential(*self.attention_b)
+
+        self.attention_c = nn.Linear(self.D, self.K,bias=bias)
+
+    def forward(self, x,no_norm=False):
+        a = self.attention_a(x)
+        b = self.attention_b(x)
+        A = a.mul(b)
+        A = self.attention_c(A)
+
+        A = torch.transpose(A, -1, -2)  # KxN
+        A_ori = A.clone()
+        A = F.softmax(A, dim=-1)  # softmax over N
+        x = torch.matmul(A,x)
+
+        if no_norm:
+            return x,A_ori
+        else:
+            return x,A
+
+class DAttention(nn.Module):
+    def __init__(self,input_dim=512,act='relu',gated=False,bias=False,dropout=False):
+        super(DAttention, self).__init__()
+        self.gated = gated
+        if gated:
+            self.attention = AttentionGated(input_dim,act,bias,dropout)
+        else:
+            self.attention = Attention(input_dim,act,bias,dropout)
+
+
+ # Modified by MAE@Meta
+    def masking(self, x, ids_shuffle=None,len_keep=None):
+        """
+        Perform per-sample random masking by per-sample shuffling.
+        Per-sample shuffling is done by argsort random noise.
+        x: [N, L, D], sequence
+        """
+        
+        N, L, D = x.shape  # batch, length, dim
+        assert ids_shuffle is not None
+
+        _,ids_restore = ids_shuffle.sort()
+
+        # keep the first subset
+        ids_keep = ids_shuffle[:, :len_keep]
+        x_masked = torch.gather(x, dim=1, index=ids_keep.unsqueeze(-1).repeat(1, 1, D))
+
+        # generate the binary mask: 0 is keep, 1 is remove
+        mask = torch.ones([N, L], device=x.device)
+        mask[:, :len_keep] = 0
+        # unshuffle to get the binary mask
+        mask = torch.gather(mask, dim=1, index=ids_restore)
+
+        return x_masked, mask, ids_restore
+
+    def forward(self, x, mask_ids=None, len_keep=None, return_attn=False,no_norm=False,mask_enable=False):
+
+        if mask_enable and mask_ids is not None:
+            x, _,_ = self.masking(x,mask_ids,len_keep)
+
+        x,attn = self.attention(x,no_norm)
 
         if return_attn:
-            if no_norm:
-                return Y_prob, A_ori
-            else:
-                return Y_prob, A
-        else:
-            return Y_prob
-
+            return x.squeeze(1),attn.squeeze(1)
+        else:   
+            return x.squeeze(1)
+            
 def initialize_weights(module):
     for m in module.modules():
         if isinstance(m,nn.Linear):
@@ -79,7 +251,7 @@ class SoftTargetCrossEntropy_v2(nn.Module):
             return loss
         
 class MHIM(nn.Module):
-    def __init__(self, mlp_dim=512,mask_ratio=0,n_classes=2,temp_t=1.,temp_s=1.,dropout=0.25,act='relu',select_mask=True,select_inv=False,msa_fusion='vote',mask_ratio_h=0.,mrh_sche=None,mask_ratio_hr=0.,mask_ratio_l=0.,da_act='gelu',baseline='selfattn',head=8,attn_layer=0):
+    def __init__(self, mlp_dim=256,mask_ratio=0,n_classes=2,temp_t=1.,temp_s=1.,dropout=0.25,act='relu',select_mask=True,select_inv=False,msa_fusion='vote',mask_ratio_h=0.,mrh_sche=None,mask_ratio_hr=0.,mask_ratio_l=0.,da_act='gelu',baseline='selfattn',head=8,attn_layer=0):
         super(MHIM, self).__init__()
  
         self.mask_ratio = mask_ratio
@@ -91,8 +263,9 @@ class MHIM(nn.Module):
         self.msa_fusion = msa_fusion
         self.mrh_sche = mrh_sche
         self.attn_layer = attn_layer
+        self.baseline = baseline
 
-        self.patch_to_emb = [nn.Linear(1024, 512)]
+        self.patch_to_emb = [nn.Linear(512, 256)]
 
         if act.lower() == 'relu':
             self.patch_to_emb += [nn.ReLU()]
@@ -103,7 +276,12 @@ class MHIM(nn.Module):
 
         self.patch_to_emb = nn.Sequential(*self.patch_to_emb)
 
-        self.online_encoder = DAttention(mlp_dim,da_act)
+        if baseline == 'selfattn':
+            self.online_encoder = SAttention(mlp_dim=mlp_dim,head=head)
+        elif baseline == 'attn':
+            self.online_encoder = DAttention(mlp_dim,da_act)
+        elif baseline == 'dsmil':
+            self.online_encoder = DSMIL(mlp_dim=mlp_dim,mask_ratio=mask_ratio)
 
         self.predictor = nn.Linear(mlp_dim,n_classes)
 
@@ -216,16 +394,15 @@ class MHIM(nn.Module):
         return len_keep,mask_ids
 
     @torch.no_grad()
-    def forward_teacher(self,x,return_attn=False):
+    def forward_teacher(self,x,return_attn):
 
         x = self.patch_to_emb(x)
         x = self.dp(x)
 
-        if return_attn:
-            x,attn = self.online_encoder(x,return_attn=True)
+        if self.baseline == 'dsmil':
+            _,x,attn = self.online_encoder(x,return_attn=True)
         else:
-            x = self.online_encoder(x)
-            attn = None
+            x,attn = self.online_encoder(x,return_attn=True)
 
         return x,attn
     
@@ -238,35 +415,32 @@ class MHIM(nn.Module):
             x,a = self.online_encoder(x,return_attn=True,no_norm=no_norm)
         else:
             x = self.online_encoder(x)
-        x = self.predictor(x)
+
+        if self.baseline == 'dsmil':
+            pass
+        else:   
+            x = self.predictor(x)
 
         if return_attn:
             return x,a
         else:
             return x
 
-    def pure(self,x,return_attn=False):
+    def pure(self,x):
         x = self.patch_to_emb(x)
         x = self.dp(x)
         ps = x.size(1)
 
-        if return_attn:
-            x,attn = self.online_encoder(x,return_attn=True)
+        if self.baseline == 'dsmil':
+            x,_ = self.online_encoder(x)
         else:
             x = self.online_encoder(x)
-
-        x = self.predictor(x)
+            x = self.predictor(x)
 
         if self.training:
-            if return_attn:
-                return x, 0, ps,ps,attn
-            else:
-                return x, 0, ps,ps
+            return x, 0, ps,ps
         else:
-            if return_attn:
-                return x,attn
-            else:
-                return x
+            return x
 
     def forward_loss(self, student_cls_feat, teacher_cls_feat):
         if teacher_cls_feat is not None:
@@ -287,14 +461,37 @@ class MHIM(nn.Module):
             len_keep,mask_ids = self.get_mask(ps,i,attn)
         else:
             len_keep,mask_ids = ps,None
+        if self.baseline == 'dsmil':
+            # forward online network
+            student_logit,student_cls_feat= self.online_encoder(x,len_keep=len_keep,mask_ids=mask_ids,mask_enable=True)
 
-        # forward online network
-        student_cls_feat= self.online_encoder(x,len_keep=len_keep,mask_ids=mask_ids,mask_enable=True)
+            # cl loss
+            cls_loss= self.forward_loss(student_cls_feat=student_cls_feat,teacher_cls_feat=teacher_cls_feat)
 
-        # prediction
-        student_logit = self.predictor(student_cls_feat)
+            return student_logit
+        else:
+            # forward online network
+            student_cls_feat= self.online_encoder(x,len_keep=len_keep,mask_ids=mask_ids,mask_enable=True)
 
-        # cl loss
-        cls_loss= self.forward_loss(student_cls_feat=student_cls_feat,teacher_cls_feat=teacher_cls_feat)
+            # prediction
+            student_logit = self.predictor(student_cls_feat)
 
-        return student_logit, cls_loss,ps,len_keep
+            # cl loss
+            cls_loss= self.forward_loss(student_cls_feat=student_cls_feat,teacher_cls_feat=teacher_cls_feat)
+
+            return student_logit
+
+class MHIM_MIL(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+
+        self.teacher = MHIM(da_act='relu',baseline='attn').eval()
+        self.teacher.requires_grad_(False)
+        self.student = MHIM(da_act='relu',baseline='attn',mask_ratio_h=0.01,mask_ratio_hr=0.5,mask_ratio=0.,select_mask=True)
+
+    def forward(self,x):
+        with torch.no_grad():
+            cls_tea,attn = self.teacher.forward_teacher(x,return_attn=True)
+
+        train_logits= self.student(x,attn,cls_tea,i=0)
+        return train_logits
