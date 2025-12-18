@@ -153,7 +153,7 @@ class CMA_MIL(nn.Module):
       - Gated attention per magnification
       - Attribute-weighted bag-level logits
       - Instance-level supervision (top-k positive / negative patches)
-
+ """
     def __init__(
         self,
         gate=True,
