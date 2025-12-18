@@ -16,7 +16,7 @@ args:
 
 class Attn_Net(nn.Module):
 
-    def __init__(self, L=1024, D=256, dropout=False, n_classes=1):
+    def __init__(self, L=512, D=128, dropout=False, n_classes=1):
         super(Attn_Net, self).__init__()
         self.module = [
             nn.Linear(L, D),
@@ -44,7 +44,7 @@ args:
 
 
 class Attn_Net_Gated(nn.Module):
-    def __init__(self, L=1024, D=256, dropout=False, n_classes=1):
+    def __init__(self, L=512, D=128, dropout=False, n_classes=1):
         super(Attn_Net_Gated, self).__init__()
         self.attention_a = [
             nn.Linear(L, D),
@@ -279,4 +279,5 @@ class CLAM_MB(CLAM_SB):
             return logits, total_inst_loss
         else:
             return logits
+
 
