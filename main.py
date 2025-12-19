@@ -4,7 +4,7 @@ import random
 import numpy as np
 import torch
 
-from Model.cma-mil import new
+from Model.cma-mil import CMA_MIL
 from Utils.data_utils import data_generator
 from Utils.train_eval import train_fold
 
