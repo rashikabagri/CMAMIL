@@ -13,8 +13,7 @@ from Utils.train_eval import train_fold
 # Reproducibility
 # --------------------------------------------------
 def set_seed(seed):
-    random.seed(seed)
-    np.random.seed(seed)
+    seed=0
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
