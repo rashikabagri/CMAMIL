@@ -9,9 +9,6 @@ from Utils.data_utils import data_generator
 from Utils.train_eval import train_fold
 
 
-# --------------------------------------------------
-# Reproducibility
-# --------------------------------------------------
 def set_seed(seed):
     seed=0
     torch.manual_seed(seed)
@@ -20,9 +17,6 @@ def set_seed(seed):
     torch.backends.cudnn.benchmark = False
 
 
-# --------------------------------------------------
-# Argument Parser
-# --------------------------------------------------
 def get_args():
     parser = argparse.ArgumentParser("CMA-MIL Training")
 
@@ -32,8 +26,8 @@ def get_args():
     parser.add_argument("--data_root_20x", type=str, required=True)
 
     # Training
-    parser.add_argument("--epochs", type=int, default=20)
-    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--epochs", type=int, default=50)
+    parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--weight_decay", type=float, default=5e-5)
     parser.add_argument("--bag_weight", type=float, default=0.7)
     parser.add_argument("--n_classes", type=int, default=2)
@@ -56,11 +50,8 @@ def main():
 
     os.makedirs(args.results_dir, exist_ok=True)
 
-    print("====================================")
     print(" CMA-MIL Training")
-    print("====================================")
     print(vars(args))
-    print("====================================")
 
     all_fold_auc = []
 
