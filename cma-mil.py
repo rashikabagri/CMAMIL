@@ -298,7 +298,7 @@ class CMA_MIL(nn.Module):
 
         top_p = torch.index_select(h, dim=0, index=top_p_ids)  # [k, dim]
 
-        p_targets = self.create_positive_targets(k_selected, device)
+        p_targets = self.create_negative_targets(k_selected, device)
 
         # Attention scores corresponding to the chosen instances
         top_p_A = A[0, top_p_ids]   # [k]
