@@ -278,6 +278,51 @@ class CMA_MIL(nn.Module):
 
         return instance_loss, logits, all_targets
 
+	def inst_eval_out(self, ss, A, h, classifier, positive=True):
+        """
+        ss: 1D or 2D tensor of scores used to rank instances (shape [N] or [1, N])
+        A:  attention scores (shape [1, N])
+        h:  instance features (shape [N, dim])
+        classifier: nn.Linear(dim, 2)
+        """
+        device = h.device
+
+        if ss.dim() == 1:
+            ss = ss.view(1, -1)
+        if A.dim() == 1:
+            A = A.view(1, -1)
+
+        k_selected = min(self.k_sample, A.shape[1])
+
+        top_p_ids = torch.topk(ss, k_selected, dim=1)[1][-1]   # [k]
+
+        top_p = torch.index_select(h, dim=0, index=top_p_ids)  # [k, dim]
+
+        p_targets = self.create_positive_targets(k_selected, device)
+
+        # Attention scores corresponding to the chosen instances
+        top_p_A = A[0, top_p_ids]   # [k]
+        all_A = all_A.unsqueeze(0)                    # [1, k]
+
+        # Raw instance logits (2-way classification)
+        instance_score = classifier(top_p).unsqueeze(0)  # [1, 2k, 2]
+
+        # Expand attention weights for each class dimension
+        A_expanded = all_A.unsqueeze(1).expand(-1, 2, -1).permute(0, 2, 1)  # [1, 2k, 2]
+
+        # Attribute-weighted scores
+        attribute_score = instance_score * torch.exp(A_expanded)            # [1, 2k, 2]
+        attribute_score = attribute_score.squeeze(0)                        # [2k, 2]
+
+        instance_loss = self.instance_loss_fn(attribute_score, p_targets)
+
+        # Weighted logits (bag-level from these instances) if needed
+        logits = torch.sum(attribute_score, dim=0, keepdim=True) / torch.sum(
+            torch.exp(A_expanded.squeeze(0)), dim=0, keepdim=True
+        )  # [1, 2]
+
+        return instance_loss, logits, p_targets
+
     
     def forward(
         self,
@@ -313,7 +358,7 @@ class CMA_MIL(nn.Module):
             # Return attention maps for the two main streams
             A_5x = self._get_attention(h_5x_10x)
             A_10x = self._get_attention(h_10x_20x)
-	 A_20x = self._get_attention(h_20x_5x)
+	 		A_20x = self._get_attention(h_20x_5x)
             return A_5x, A_10x, A_20x
 
         # 3) Process each magnification stream with gated attention + attribute-weighted logits
@@ -371,11 +416,12 @@ class CMA_MIL(nn.Module):
             for i, classifier in enumerate(self.instance_classifiers):
                 if inst_labels[i].item() == 1:
                     # In-the-class branch: rank by class-specific scores
-                    class_score = attribute_score[0, :, i]  # [N]
+                    class_score = attribute_score[0, :, i] 
                     loss, _, _ = self.inst_eval(class_score, A, h_attn, classifier, positive=True)
                 elif self.subtyping:
-                    # Out-of-the-class branch (if subtyping)
-                    loss, _, _ = self.inst_eval(A.squeeze(0), A, h_attn, classifier, positive=False)
+                    # Out-of-the-class branch
+                    class_score = attribute_score[0, :, i] 
+                    loss, _, _ = self.inst_eval_out(class_score, A, h_attn, classifier, positive=True)
                 else:
                     continue
                 total_inst_loss += loss
