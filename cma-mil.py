@@ -302,7 +302,7 @@ class CMA_MIL(nn.Module):
 
         # Attention scores corresponding to the chosen instances
         top_p_A = A[0, top_p_ids]   # [k]
-        all_A = all_A.unsqueeze(0)                    # [1, k]
+        all_A = top_p_A.unsqueeze(0)                    # [1, k]
 
         # Raw instance logits (2-way classification)
         instance_score = classifier(top_p).unsqueeze(0)  # [1, 2k, 2]
